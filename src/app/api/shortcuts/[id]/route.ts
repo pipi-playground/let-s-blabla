@@ -21,6 +21,18 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ error: `기본 전송 대상은 최대 ${MAX_RECIPIENTS}명이에요.` }, { status: 400 });
   }
 
+  if (recipientIds.length > 0) {
+    const { data: friendRows } = await supabase
+      .from("friends")
+      .select("friend_id")
+      .eq("owner_id", user.id)
+      .in("friend_id", recipientIds);
+    const validIds = new Set((friendRows ?? []).map((f) => f.friend_id));
+    if (recipientIds.some((rid) => !validIds.has(rid))) {
+      return NextResponse.json({ error: "친구 목록에 없는 상대가 포함되어 있어요." }, { status: 400 });
+    }
+  }
+
   const { error } = await supabase
     .from("shortcuts")
     .update({ name, message_template: messageTemplate, updated_at: new Date().toISOString() })

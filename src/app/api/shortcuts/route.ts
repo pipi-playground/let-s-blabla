@@ -9,15 +9,21 @@ export async function GET() {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "로그인이 필요해요." }, { status: 401 });
 
-  const { data: shortcuts, error } = await supabase
-    .from("shortcuts")
-    .select(
-      "id, name, message_template, cooldown_seconds, last_sent_at, created_at, shortcut_recipients(friend_id, friend:profiles!shortcut_recipients_friend_id_fkey(nickname))"
-    )
-    .eq("owner_id", user.id)
-    .order("created_at", { ascending: false });
+  const [{ data: shortcuts, error }, { data: friendRows }] = await Promise.all([
+    supabase
+      .from("shortcuts")
+      .select(
+        "id, name, message_template, cooldown_seconds, last_sent_at, created_at, shortcut_recipients(friend_id, friend:profiles!shortcut_recipients_friend_id_fkey(nickname))"
+      )
+      .eq("owner_id", user.id)
+      .order("created_at", { ascending: false }),
+    supabase.from("friends").select("friend_id").eq("owner_id", user.id),
+  ]);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // 이미 삭제된(더 이상 친구가 아닌) 상대는 기본 전송 대상에서 제외
+  const currentFriendIds = new Set((friendRows ?? []).map((f) => f.friend_id));
 
   const result = (shortcuts ?? []).map((s) => ({
     id: s.id,
@@ -26,10 +32,12 @@ export async function GET() {
     cooldownSeconds: s.cooldown_seconds,
     lastSentAt: s.last_sent_at,
     createdAt: s.created_at,
-    defaultRecipients: (s.shortcut_recipients ?? []).map((r) => ({
-      friendId: r.friend_id,
-      nickname: (r.friend as unknown as { nickname: string })?.nickname,
-    })),
+    defaultRecipients: (s.shortcut_recipients ?? [])
+      .filter((r) => currentFriendIds.has(r.friend_id))
+      .map((r) => ({
+        friendId: r.friend_id,
+        nickname: (r.friend as unknown as { nickname: string })?.nickname,
+      })),
   }));
 
   return NextResponse.json({ shortcuts: result });
@@ -51,6 +59,18 @@ export async function POST(request: Request) {
   if (!messageTemplate) return NextResponse.json({ error: "메시지를 입력해주세요." }, { status: 400 });
   if (recipientIds.length > MAX_RECIPIENTS) {
     return NextResponse.json({ error: `기본 전송 대상은 최대 ${MAX_RECIPIENTS}명이에요.` }, { status: 400 });
+  }
+
+  if (recipientIds.length > 0) {
+    const { data: friendRows } = await supabase
+      .from("friends")
+      .select("friend_id")
+      .eq("owner_id", user.id)
+      .in("friend_id", recipientIds);
+    const validIds = new Set((friendRows ?? []).map((f) => f.friend_id));
+    if (recipientIds.some((id) => !validIds.has(id))) {
+      return NextResponse.json({ error: "친구 목록에 없는 상대가 포함되어 있어요." }, { status: 400 });
+    }
   }
 
   const { data: shortcut, error } = await supabase
