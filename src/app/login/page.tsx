@@ -8,6 +8,14 @@ type Tab = "signup" | "login";
 
 export default function LoginPage() {
   const [tab, setTab] = useState<Tab>("signup");
+  const [prefillEmail, setPrefillEmail] = useState("");
+  const [justSignedUp, setJustSignedUp] = useState(false);
+
+  function handleSignedUp(email: string) {
+    setPrefillEmail(email);
+    setJustSignedUp(true);
+    setTab("login");
+  }
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center gap-6 px-6 py-10">
@@ -31,21 +39,28 @@ export default function LoginPage() {
           className={`rounded-md py-2 transition ${
             tab === "login" ? "bg-white shadow-sm" : "text-neutral-500"
           }`}
-          onClick={() => setTab("login")}
+          onClick={() => {
+            setJustSignedUp(false);
+            setTab("login");
+          }}
         >
           로그인
         </button>
       </div>
 
-      {tab === "signup" ? <SignupForm /> : <LoginForm />}
+      {tab === "signup" ? (
+        <SignupForm onSignedUp={handleSignedUp} />
+      ) : (
+        <LoginForm initialEmail={prefillEmail} showSignedUpNotice={justSignedUp} />
+      )}
     </main>
   );
 }
 
-function SignupForm() {
-  const router = useRouter();
+function SignupForm({ onSignedUp }: { onSignedUp: (email: string) => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [passwordConfirm, setPasswordConfirm] = useState("");
   const [nickname, setNickname] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -53,6 +68,12 @@ function SignupForm() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+
+    if (password !== passwordConfirm) {
+      setError("비밀번호가 일치하지 않아요.");
+      return;
+    }
+
     setLoading(true);
 
     const supabase = createClient();
@@ -78,8 +99,10 @@ function SignupForm() {
       return;
     }
 
-    router.replace("/");
-    router.refresh();
+    // 가입 즉시 로그인시키지 않고, 로그인 탭에서 직접 로그인하도록 세션을 비운다.
+    await supabase.auth.signOut();
+    setLoading(false);
+    onSignedUp(email);
   }
 
   return (
@@ -105,6 +128,17 @@ function SignupForm() {
           placeholder="6자 이상"
         />
       </Field>
+      <Field label="비밀번호 확인">
+        <input
+          type="password"
+          required
+          minLength={6}
+          value={passwordConfirm}
+          onChange={(e) => setPasswordConfirm(e.target.value)}
+          className="input"
+          placeholder="비밀번호 다시 입력"
+        />
+      </Field>
       <Field label="닉네임 (선택)">
         <input
           type="text"
@@ -125,9 +159,15 @@ function SignupForm() {
   );
 }
 
-function LoginForm() {
+function LoginForm({
+  initialEmail = "",
+  showSignedUpNotice = false,
+}: {
+  initialEmail?: string;
+  showSignedUpNotice?: boolean;
+}) {
   const router = useRouter();
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(initialEmail);
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -152,6 +192,11 @@ function LoginForm() {
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+      {showSignedUpNotice && (
+        <p className="rounded-lg bg-neutral-100 px-3 py-2 text-sm text-neutral-600">
+          가입이 완료됐어요. 로그인해주세요.
+        </p>
+      )}
       <Field label="이메일">
         <input
           type="email"

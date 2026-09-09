@@ -16,9 +16,22 @@ interface DndSettings {
 }
 
 export default function SettingsPage() {
+  const [nickname, setNickname] = useState("");
+  const [nicknameSaved, setNicknameSaved] = useState("");
+  const [nicknameSaving, setNicknameSaving] = useState(false);
+  const [nicknameError, setNicknameError] = useState<string | null>(null);
   const [contacts, setContacts] = useState<Contact[] | null>(null);
   const [dnd, setDnd] = useState<DndSettings | null>(null);
   const [dndSaving, setDndSaving] = useState(false);
+
+  async function loadProfile() {
+    const res = await fetch("/api/profile");
+    const body = await res.json();
+    if (body.profile) {
+      setNickname(body.profile.nickname);
+      setNicknameSaved(body.profile.nickname);
+    }
+  }
 
   async function loadContacts() {
     const res = await fetch("/api/settings/mutes");
@@ -38,9 +51,38 @@ export default function SettingsPage() {
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 초기 데이터 로드
+    loadProfile();
     loadContacts();
     loadDnd();
   }, []);
+
+  async function handleSaveNickname(e: React.FormEvent) {
+    e.preventDefault();
+    setNicknameError(null);
+
+    const trimmed = nickname.trim();
+    if (!trimmed) {
+      setNicknameError("닉네임을 입력해주세요.");
+      return;
+    }
+
+    setNicknameSaving(true);
+    const res = await fetch("/api/profile", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nickname: trimmed }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setNicknameSaving(false);
+
+    if (!res.ok) {
+      setNicknameError(body.error ?? "저장에 실패했어요.");
+      return;
+    }
+
+    setNickname(trimmed);
+    setNicknameSaved(trimmed);
+  }
 
   async function toggleMute(contact: Contact) {
     setContacts((prev) =>
@@ -66,6 +108,27 @@ export default function SettingsPage() {
 
   return (
     <div className="flex flex-col gap-8">
+      <section>
+        <h2 className="mb-2 text-sm font-semibold text-neutral-700">닉네임</h2>
+        <form onSubmit={handleSaveNickname} className="card flex flex-col gap-3 p-4 text-sm">
+          <input
+            className="input"
+            value={nickname}
+            onChange={(e) => setNickname(e.target.value)}
+            maxLength={20}
+            placeholder="닉네임"
+          />
+          {nicknameError && <p className="text-red-500">{nicknameError}</p>}
+          <button
+            type="submit"
+            disabled={nicknameSaving || nickname.trim() === nicknameSaved}
+            className="btn-primary self-start"
+          >
+            {nicknameSaving ? "저장 중..." : "저장"}
+          </button>
+        </form>
+      </section>
+
       <section>
         <h2 className="mb-2 text-sm font-semibold text-neutral-700">방해금지 시간대</h2>
         {dnd && (
