@@ -4,11 +4,26 @@ import { useEffect, useState } from "react";
 import type { FriendListItem } from "@/types/app";
 import { createClient } from "@/lib/supabase/client";
 
+interface FoundProfile {
+  id: string;
+  nickname: string;
+  memberCode: string;
+  createdAt: string;
+  alreadyFriend: boolean;
+}
+
+function formatDate(iso: string) {
+  const d = new Date(iso);
+  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;
+}
+
 export default function FriendsPage() {
   const [friends, setFriends] = useState<FriendListItem[] | null>(null);
   const [myCode, setMyCode] = useState<string | null>(null);
   const [code, setCode] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [foundProfile, setFoundProfile] = useState<FoundProfile | null>(null);
   const [adding, setAdding] = useState(false);
 
   async function load() {
@@ -28,30 +43,47 @@ export default function FriendsPage() {
     });
   }, []);
 
-  async function handleAdd(e: React.FormEvent) {
+  async function handleSearch(e: React.FormEvent) {
     e.preventDefault();
-    setError(null);
+    setSearchError(null);
+    setFoundProfile(null);
 
     if (!/^\d{4}$/.test(code)) {
-      setError("숫자 4자리 회원코드를 입력해주세요.");
+      setSearchError("숫자 4자리 회원코드를 입력해주세요.");
       return;
     }
 
+    setSearching(true);
+    const res = await fetch(`/api/friends/lookup?code=${code}`);
+    const body = await res.json().catch(() => ({}));
+    setSearching(false);
+
+    if (!res.ok) {
+      setSearchError(body.error ?? "조회에 실패했어요.");
+      return;
+    }
+
+    setFoundProfile(body.profile);
+  }
+
+  async function handleConfirmAdd() {
+    if (!foundProfile) return;
     setAdding(true);
     const res = await fetch("/api/friends", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ memberCode: code }),
+      body: JSON.stringify({ memberCode: foundProfile.memberCode }),
     });
     const body = await res.json().catch(() => ({}));
     setAdding(false);
 
     if (!res.ok) {
-      setError(body.error ?? "친구 추가에 실패했어요.");
+      setSearchError(body.error ?? "친구 추가에 실패했어요.");
       return;
     }
 
     setCode("");
+    setFoundProfile(null);
     load();
   }
 
@@ -69,19 +101,47 @@ export default function FriendsPage() {
         <p className="mt-1 text-xs text-neutral-400">친구에게 이 코드를 알려주면 추가할 수 있어요.</p>
       </div>
 
-      <form onSubmit={handleAdd} className="flex gap-2">
-        <input
-          className="input flex-1"
-          value={code}
-          onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 4))}
-          placeholder="상대 회원코드 4자리"
-          inputMode="numeric"
-        />
-        <button type="submit" disabled={adding} className="btn-primary">
-          추가
-        </button>
-      </form>
-      {error && <p className="-mt-4 text-sm text-red-500">{error}</p>}
+      <div>
+        <form onSubmit={handleSearch} className="flex gap-2">
+          <input
+            className="input flex-1"
+            value={code}
+            onChange={(e) => {
+              setCode(e.target.value.replace(/\D/g, "").slice(0, 4));
+              setFoundProfile(null);
+            }}
+            placeholder="상대 회원코드 4자리"
+            inputMode="numeric"
+          />
+          <button type="submit" disabled={searching} className="btn-primary">
+            {searching ? "검색 중..." : "검색"}
+          </button>
+        </form>
+        {searchError && <p className="mt-2 text-sm text-red-500">{searchError}</p>}
+
+        {foundProfile && (
+          <div className="card mt-3 flex items-center justify-between gap-3 p-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-xl">
+                👤
+              </div>
+              <div>
+                <p className="font-medium">{foundProfile.nickname}</p>
+                <p className="text-xs text-neutral-400">
+                  {formatDate(foundProfile.createdAt)} 가입
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={handleConfirmAdd}
+              disabled={adding || foundProfile.alreadyFriend}
+              className="btn-primary shrink-0"
+            >
+              {foundProfile.alreadyFriend ? "이미 추가됨" : adding ? "추가 중..." : "추가"}
+            </button>
+          </div>
+        )}
+      </div>
 
       <div>
         <h2 className="mb-2 text-sm font-semibold text-neutral-700">추가한 친구</h2>
