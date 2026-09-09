@@ -48,6 +48,8 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|manifest.json|sw.js|icons/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    // /api/*는 각 라우트 핸들러가 자체적으로 인증을 검사하므로 제외한다.
+    // (여기서 한 번 더 검사하면 요청마다 getUser() 네트워크 왕복이 중복으로 발생한다.)
+    "/((?!api/|_next/static|_next/image|favicon.ico|manifest.json|sw.js|icons/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
