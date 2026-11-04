@@ -124,7 +124,6 @@ npm run dev
 ### 4. Vercel 배포
 
 1. GitHub에 push 후 Vercel에서 이 저장소 import
-   - 서버 함수 리전은 `vercel.json`에서 **`hnd1`(도쿄)**로 고정되어 있습니다. Supabase 프로젝트 리전(`ap-northeast-1`, 도쿄)과 맞춰 DB 왕복 지연을 최소화하기 위함이며, Supabase 리전을 바꾸면 이 값도 함께 바꿔주세요. (확인: Vercel → Settings → Functions → Function Region)
 2. Vercel 프로젝트 설정 → Environment Variables에 위 6개 값(`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`) 등록
 3. Deploy
 
@@ -207,14 +206,14 @@ public/manifest.json, public/sw.js  PWA 매니페스트 & 서비스워커
 ## 성능 설계
 
 - **인증 확인을 로컬 JWT 검증으로**: proxy와 API 라우트에서 `getUser()`(매번 Auth 서버 왕복) 대신 `getClaims()`를 사용. Supabase JWT 서명 키가 ECC(P-256)라 공개키(JWKS, 캐시됨)로 서버 안에서 바로 검증합니다.
-- **함수 리전 = DB 리전**: `vercel.json`의 `regions: ["hnd1"]`로 Vercel 함수를 Supabase(도쿄)와 같은 리전에서 실행
-- **DB 왕복 최소화**: 단축버튼 저장(검증 + 저장 + 기본 대상 교체)과 친구 요청/수락을 Postgres 함수(RPC) 한 번으로 처리. 발송 시 필요한 조회 7개는 한 번에 병렬 실행
+- **DB 왕복 최소화** (Vercel 함수는 기본 리전 `iad1`(워싱턴 D.C.), Supabase는 `ap-northeast-1`(도쿄)이라 DB 왕복 1회당 지연이 큼): 단축버튼 저장(검증 + 저장 + 기본 대상 교체)과 친구 요청/수락을 Postgres 함수(RPC) 한 번으로 처리. 발송 시 필요한 조회 7개는 한 번에 병렬 실행
 - **응답 후 처리**: 발송 기록 저장, 만료 구독 정리, 친구 요청 푸시는 Next.js `after()`로 응답을 보낸 뒤 실행
 - **클라이언트 캐시** (`src/lib/client/cache.ts`): 단축버튼·친구·프로필 등을 stale-while-revalidate 방식으로 캐시하고 localStorage에도 저장해, 탭 이동이나 앱 재실행 시 로딩 없이 바로 표시. 저장/삭제 후에는 서버 응답으로 캐시를 직접 갱신해 재조회하지 않음. 로그인/로그아웃 시 캐시 초기화
 
 ## 알려진 제약 / 다음에 고려할 것
 
 - 회원코드가 4자리 숫자라 전수조사로 다른 사람 코드를 알아낼 수 있습니다. 지인 소규모 사용을 전제로 한 트레이드오프입니다.
+- Vercel 함수(기본 `iad1`)와 Supabase(도쿄) 리전이 달라 DB 왕복마다 지연이 있습니다. Vercel 무료 플랜에서는 함수 리전 변경이 유료라 기본값을 사용 중입니다.
 - 친구 삭제는 내 목록에서만 지워집니다. (상대 목록에는 내가 남아 있음)
 - 발송 기록은 응답 후에 저장되므로, 보내자마자 기록 탭을 열면 1초 미만 늦게 보일 수 있습니다.
 - 아이콘은 자리표시용 단색 PNG입니다. `public/icons/`, `public/favicon-32.png`를 원하는 디자인으로 교체하세요.
