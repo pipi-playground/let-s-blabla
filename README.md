@@ -78,11 +78,11 @@ flowchart TD
     F -- 예 --> F1[status: dnd]
     F -- 아니오 --> G{푸시 구독 있음?}
     G -- 아니오 --> G1[status: no_subscription]
-    G -- 예 --> H[메시지 템플릿 렌더링<br/>{{me}} / {{user}} 치환]
+    G -- 예 --> H["메시지 템플릿 렌더링<br/>#123;#123;me#125;#125; / #123;#123;user#125;#125; 치환"]
     H --> I[web-push로 발송<br/>수신자 전원 병렬]
     I --> J[status: sent / failed]
     E1 & F1 & G1 & J --> K[결과를 화면에 표시]
-    K -.응답 후 after.-> L[send_logs 기록 +<br/>만료 구독 정리]
+    K -. 응답 후 after .-> L["send_logs 기록 +<br/>만료 구독 정리"]
 ```
 
 ## 시작하기 (개발 환경 세팅)
