@@ -29,3 +29,30 @@ export interface SendResult {
   nickname: string;
   status: SendStatus;
 }
+
+export interface FriendRequestItem {
+  id: string; // friend_requests.id
+  userId: string; // 상대 profiles.id
+  nickname: string;
+  memberCode: string;
+  createdAt: string;
+}
+
+export interface FriendRequestsResponse {
+  incoming: FriendRequestItem[];
+  outgoing: FriendRequestItem[];
+}
+
+export interface HistoryItem {
+  id: string;
+  counterpartId: string;
+  counterpartNickname: string;
+  message: string;
+  status: SendStatus;
+  createdAt: string;
+}
+
+export interface Profile {
+  nickname: string;
+  member_code: string;
+}

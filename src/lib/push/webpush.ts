@@ -20,6 +20,15 @@ export interface PushSubscriptionRow {
   auth: string;
 }
 
+export interface PushPayload {
+  title: string;
+  body: string;
+  /** 알림을 눌렀을 때 열 경로 (기본 "/") */
+  url?: string;
+  /** 같은 tag 알림은 서로 덮어씀 */
+  tag?: string;
+}
+
 export type PushSendResult =
   | { ok: true }
   | { ok: false; expired: boolean; error: unknown };
@@ -30,7 +39,7 @@ export type PushSendResult =
  */
 export async function sendPushToSubscription(
   sub: PushSubscriptionRow,
-  payload: { title: string; body: string }
+  payload: PushPayload
 ): Promise<PushSendResult> {
   ensureConfigured();
 
@@ -40,7 +49,14 @@ export async function sendPushToSubscription(
         endpoint: sub.endpoint,
         keys: { p256dh: sub.p256dh, auth: sub.auth },
       },
-      JSON.stringify(payload)
+      JSON.stringify(payload),
+      {
+        // 즉시 전달 우선 (모바일 절전 상태에서도 지연 최소화), 1시간 지나면 폐기
+        urgency: "high",
+        TTL: 60 * 60,
+        // 푸시 서비스 응답이 늦어도 API 응답이 무한정 길어지지 않도록
+        timeout: 8000,
+      }
     );
     return { ok: true };
   } catch (error) {
@@ -48,4 +64,14 @@ export async function sendPushToSubscription(
     const expired = statusCode === 404 || statusCode === 410;
     return { ok: false, expired, error };
   }
+}
+
+/** 여러 구독에 병렬 발송하고, 하나라도 성공했는지와 만료된 구독 id 목록을 돌려준다. */
+export async function sendPushToSubscriptions(subs: PushSubscriptionRow[], payload: PushPayload) {
+  const results = await Promise.all(subs.map((sub) => sendPushToSubscription(sub, payload)));
+  const expiredIds = subs.filter((_, i) => {
+    const r = results[i];
+    return !r.ok && r.expired;
+  }).map((s) => s.id);
+  return { anyOk: results.some((r) => r.ok), expiredIds };
 }

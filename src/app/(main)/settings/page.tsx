@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useCached, useProfile } from "@/lib/client/cache";
 
 interface Contact {
   id: string;
@@ -15,46 +16,37 @@ interface DndSettings {
   end_time: string;
 }
 
+async function fetchContacts() {
+  const res = await fetch("/api/settings/mutes");
+  if (!res.ok) throw new Error("contacts");
+  const body = await res.json();
+  return (body.contacts ?? []) as Contact[];
+}
+
+async function fetchDnd(): Promise<DndSettings> {
+  const res = await fetch("/api/settings/dnd");
+  if (!res.ok) throw new Error("dnd");
+  const body = await res.json();
+  return {
+    enabled: body.settings.enabled,
+    start_time: body.settings.start_time?.slice(0, 5) ?? "23:00",
+    end_time: body.settings.end_time?.slice(0, 5) ?? "08:00",
+  };
+}
+
 export default function SettingsPage() {
-  const [nickname, setNickname] = useState("");
-  const [nicknameSaved, setNicknameSaved] = useState("");
+  const { data: profile, mutate: setProfile } = useProfile();
+  const { data: contacts, mutate: setContacts } = useCached("settings:contacts", fetchContacts, { persist: true });
+  const { data: dnd, mutate: setDnd } = useCached("settings:dnd", fetchDnd, { persist: true });
+  // 입력 중인 값(null이면 저장된 닉네임을 그대로 표시)
+  const [nicknameDraft, setNicknameDraft] = useState<string | null>(null);
   const [nicknameSaving, setNicknameSaving] = useState(false);
   const [nicknameError, setNicknameError] = useState<string | null>(null);
-  const [contacts, setContacts] = useState<Contact[] | null>(null);
-  const [dnd, setDnd] = useState<DndSettings | null>(null);
   const [dndSaving, setDndSaving] = useState(false);
 
-  async function loadProfile() {
-    const res = await fetch("/api/profile");
-    const body = await res.json();
-    if (body.profile) {
-      setNickname(body.profile.nickname);
-      setNicknameSaved(body.profile.nickname);
-    }
-  }
-
-  async function loadContacts() {
-    const res = await fetch("/api/settings/mutes");
-    const body = await res.json();
-    setContacts(body.contacts ?? []);
-  }
-
-  async function loadDnd() {
-    const res = await fetch("/api/settings/dnd");
-    const body = await res.json();
-    setDnd({
-      enabled: body.settings.enabled,
-      start_time: body.settings.start_time?.slice(0, 5) ?? "23:00",
-      end_time: body.settings.end_time?.slice(0, 5) ?? "08:00",
-    });
-  }
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 초기 데이터 로드
-    loadProfile();
-    loadContacts();
-    loadDnd();
-  }, []);
+  const nicknameSaved = profile?.nickname ?? "";
+  const nickname = nicknameDraft ?? nicknameSaved;
+  const setNickname = (v: string) => setNicknameDraft(v);
 
   async function handleSaveNickname(e: React.FormEvent) {
     e.preventDefault();
@@ -80,14 +72,12 @@ export default function SettingsPage() {
       return;
     }
 
-    setNickname(trimmed);
-    setNicknameSaved(trimmed);
+    setNicknameDraft(null);
+    setProfile((prev) => ({ member_code: prev?.member_code ?? "", nickname: trimmed }));
   }
 
   async function toggleMute(contact: Contact) {
-    setContacts((prev) =>
-      prev ? prev.map((c) => (c.id === contact.id ? { ...c, muted: !c.muted } : c)) : prev
-    );
+    setContacts((prev = []) => prev.map((c) => (c.id === contact.id ? { ...c, muted: !c.muted } : c)));
     await fetch("/api/settings/mutes", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -167,7 +157,7 @@ export default function SettingsPage() {
 
       <section>
         <h2 className="mb-2 text-sm font-semibold text-neutral-700">상대별 알림 설정</h2>
-        {contacts === null ? (
+        {contacts === undefined ? (
           <p className="text-sm text-neutral-400">불러오는 중...</p>
         ) : contacts.length === 0 ? (
           <p className="text-sm text-neutral-400">아직 친구 관계가 없어요.</p>

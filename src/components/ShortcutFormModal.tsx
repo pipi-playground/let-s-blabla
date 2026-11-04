@@ -8,10 +8,11 @@ interface Props {
   friends: FriendListItem[];
   shortcut?: ShortcutListItem;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (shortcut: ShortcutListItem) => void;
+  onDeleted: (id: string) => void;
 }
 
-export default function ShortcutFormModal({ friends, shortcut, onClose, onSaved }: Props) {
+export default function ShortcutFormModal({ friends, shortcut, onClose, onSaved, onDeleted }: Props) {
   const isEdit = Boolean(shortcut);
   const [name, setName] = useState(shortcut?.name ?? "");
   const [message, setMessage] = useState(shortcut?.messageTemplate ?? "");
@@ -53,15 +54,15 @@ export default function ShortcutFormModal({ friends, shortcut, onClose, onSaved 
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: name.trim(), messageTemplate: message.trim(), recipientIds }),
     });
+    const body = await res.json().catch(() => ({}));
     setSaving(false);
 
     if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
       setError(body.error ?? "저장에 실패했어요.");
       return;
     }
 
-    onSaved();
+    onSaved(body.shortcut);
   }
 
   async function handleDelete() {
@@ -78,7 +79,7 @@ export default function ShortcutFormModal({ friends, shortcut, onClose, onSaved 
       return;
     }
 
-    onSaved();
+    onDeleted(shortcut.id);
   }
 
   return (

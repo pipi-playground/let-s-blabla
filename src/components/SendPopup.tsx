@@ -16,9 +16,10 @@ interface Props {
   shortcut: ShortcutListItem;
   friends: FriendListItem[];
   onClose: () => void;
+  onSent: (lastSentAt: string) => void;
 }
 
-export default function SendPopup({ shortcut, friends, onClose }: Props) {
+export default function SendPopup({ shortcut, friends, onClose, onSent }: Props) {
   const [selected, setSelected] = useState<string[]>(
     shortcut.defaultRecipients.map((r) => r.friendId)
   );
@@ -60,6 +61,7 @@ export default function SendPopup({ shortcut, friends, onClose }: Props) {
     }
 
     setResults(body.results);
+    if (body.lastSentAt) onSent(body.lastSentAt);
   }
 
   return (

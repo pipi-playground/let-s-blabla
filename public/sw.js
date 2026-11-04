@@ -21,19 +21,25 @@ self.addEventListener("push", (event) => {
       body: payload.body,
       icon: "/icons/icon-192.png",
       badge: "/icons/icon-192.png",
-      tag: "letsblabla-push",
+      tag: payload.tag || "letsblabla-push",
       renotify: true,
+      data: { url: payload.url || "/" },
     })
   );
 });
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || "/";
   event.waitUntil(
-    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(async (clients) => {
       const existing = clients.find((c) => "focus" in c);
-      if (existing) return existing.focus();
-      return self.clients.openWindow("/");
+      if (existing) {
+        await existing.focus();
+        if ("navigate" in existing) return existing.navigate(url).catch(() => {});
+        return;
+      }
+      return self.clients.openWindow(url);
     })
   );
 });

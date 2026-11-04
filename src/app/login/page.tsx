@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { clearCache } from "@/lib/client/cache";
 
 type Tab = "signup" | "login";
 
@@ -186,6 +187,8 @@ function LoginForm({
       return;
     }
 
+    // 이전 계정의 캐시가 남아 있지 않도록 로그인 직후 비움
+    clearCache();
     router.replace("/");
     router.refresh();
   }

@@ -1,13 +1,10 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthedClient, unauthorized } from "@/lib/supabase/auth";
 
-// 회원코드로 상대 프로필을 미리 조회 (친구 추가 확정 전 미리보기용)
+// 회원코드로 상대 프로필을 미리 조회 (친구 추가/요청 확정 전 미리보기용)
 export async function GET(request: Request) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "로그인이 필요해요." }, { status: 401 });
+  const { supabase, userId } = await getAuthedClient();
+  if (!userId) return unauthorized();
 
   const memberCode = new URL(request.url).searchParams.get("code")?.trim() ?? "";
   if (!/^\d{4}$/.test(memberCode)) {
@@ -22,16 +19,25 @@ export async function GET(request: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!target) return NextResponse.json({ error: "해당 회원코드를 찾을 수 없어요." }, { status: 404 });
-  if (target.id === user.id) {
+  if (target.id === userId) {
     return NextResponse.json({ error: "본인은 추가할 수 없어요." }, { status: 400 });
   }
 
-  const { data: existing } = await supabase
-    .from("friends")
-    .select("id")
-    .eq("owner_id", user.id)
-    .eq("friend_id", target.id)
-    .maybeSingle();
+  const [{ data: relations }, { data: requests }] = await Promise.all([
+    supabase
+      .from("friends")
+      .select("owner_id")
+      .or(`and(owner_id.eq.${userId},friend_id.eq.${target.id}),and(owner_id.eq.${target.id},friend_id.eq.${userId})`),
+    supabase
+      .from("friend_requests")
+      .select("requester_id")
+      .or(`and(requester_id.eq.${userId},addressee_id.eq.${target.id}),and(requester_id.eq.${target.id},addressee_id.eq.${userId})`),
+  ]);
+
+  const alreadyFriend = (relations ?? []).some((r) => r.owner_id === userId);
+  const theyAddedMe = (relations ?? []).some((r) => r.owner_id === target.id);
+  const requestSent = (requests ?? []).some((r) => r.requester_id === userId);
+  const requestReceived = (requests ?? []).some((r) => r.requester_id === target.id);
 
   return NextResponse.json({
     profile: {
@@ -39,7 +45,10 @@ export async function GET(request: Request) {
       nickname: target.nickname,
       memberCode: target.member_code,
       createdAt: target.created_at,
-      alreadyFriend: Boolean(existing),
+      alreadyFriend,
+      mutualFriend: alreadyFriend && theyAddedMe,
+      requestSent,
+      requestReceived,
     },
   });
 }

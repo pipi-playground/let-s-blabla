@@ -1,33 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import PushSetupBanner from "@/components/PushSetupBanner";
 import ShortcutCard from "@/components/ShortcutCard";
 import ShortcutFormModal from "@/components/ShortcutFormModal";
 import SendPopup from "@/components/SendPopup";
-import type { FriendListItem, ShortcutListItem } from "@/types/app";
+import { useFriends, useShortcuts } from "@/lib/client/cache";
+import type { ShortcutListItem } from "@/types/app";
 
 export default function HomePage() {
-  const [shortcuts, setShortcuts] = useState<ShortcutListItem[] | null>(null);
-  const [friends, setFriends] = useState<FriendListItem[]>([]);
+  // 캐시된 목록을 즉시 보여주고 백그라운드에서 갱신 → 탭 이동 시 다시 로딩되지 않음
+  const { data: shortcuts, mutate: setShortcuts } = useShortcuts();
+  const { data: friends } = useFriends();
   const [editing, setEditing] = useState<ShortcutListItem | "new" | null>(null);
   const [sending, setSending] = useState<ShortcutListItem | null>(null);
-
-  const load = useCallback(async () => {
-    const [shortcutsRes, friendsRes] = await Promise.all([
-      fetch("/api/shortcuts"),
-      fetch("/api/friends"),
-    ]);
-    const shortcutsBody = await shortcutsRes.json();
-    const friendsBody = await friendsRes.json();
-    setShortcuts(shortcutsBody.shortcuts ?? []);
-    setFriends(friendsBody.friends ?? []);
-  }, []);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 초기 데이터 로드
-    load();
-  }, [load]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -40,7 +26,7 @@ export default function HomePage() {
         </button>
       </div>
 
-      {shortcuts === null ? (
+      {shortcuts === undefined ? (
         <p className="text-sm text-neutral-400">불러오는 중...</p>
       ) : shortcuts.length === 0 ? (
         <div className="card p-6 text-center text-sm text-neutral-500">
@@ -61,17 +47,37 @@ export default function HomePage() {
 
       {editing && (
         <ShortcutFormModal
-          friends={friends}
+          friends={friends ?? []}
           shortcut={editing === "new" ? undefined : editing}
           onClose={() => setEditing(null)}
-          onSaved={() => {
+          onSaved={(saved) => {
             setEditing(null);
-            load();
+            // 서버가 돌려준 결과로 목록을 바로 갱신 (재조회 왕복 없음)
+            setShortcuts((prev = []) =>
+              prev.some((s) => s.id === saved.id)
+                ? prev.map((s) => (s.id === saved.id ? saved : s))
+                : [saved, ...prev]
+            );
+          }}
+          onDeleted={(id) => {
+            setEditing(null);
+            setShortcuts((prev = []) => prev.filter((s) => s.id !== id));
           }}
         />
       )}
 
-      {sending && <SendPopup shortcut={sending} friends={friends} onClose={() => setSending(null)} />}
+      {sending && (
+        <SendPopup
+          shortcut={sending}
+          friends={friends ?? []}
+          onClose={() => setSending(null)}
+          onSent={(lastSentAt) =>
+            setShortcuts((prev = []) =>
+              prev.map((s) => (s.id === sending.id ? { ...s, lastSentAt } : s))
+            )
+          }
+        />
+      )}
     </div>
   );
 }

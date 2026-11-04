@@ -1,12 +1,9 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthedClient, unauthorized } from "@/lib/supabase/auth";
 
 export async function POST(request: Request) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "로그인이 필요해요." }, { status: 401 });
+  const { supabase, userId } = await getAuthedClient();
+  if (!userId) return unauthorized();
 
   const body = await request.json().catch(() => null);
   const endpoint = body?.endpoint as string | undefined;
@@ -19,7 +16,7 @@ export async function POST(request: Request) {
 
   const { error } = await supabase
     .from("push_subscriptions")
-    .upsert({ user_id: user.id, endpoint, p256dh, auth }, { onConflict: "endpoint" });
+    .upsert({ user_id: userId, endpoint, p256dh, auth }, { onConflict: "endpoint" });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -27,11 +24,8 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "로그인이 필요해요." }, { status: 401 });
+  const { supabase, userId } = await getAuthedClient();
+  if (!userId) return unauthorized();
 
   const body = await request.json().catch(() => null);
   const endpoint = body?.endpoint as string | undefined;
@@ -41,7 +35,7 @@ export async function DELETE(request: Request) {
     .from("push_subscriptions")
     .delete()
     .eq("endpoint", endpoint)
-    .eq("user_id", user.id);
+    .eq("user_id", userId);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

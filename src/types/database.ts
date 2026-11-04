@@ -1,5 +1,7 @@
-// supabase/migrations/0001_init.sql 스키마에 대응하는 수기 타입 정의.
+// supabase/migrations/0001_init.sql + 0002 스키마에 대응하는 수기 타입 정의.
 // 스키마가 바뀌면 `supabase gen types typescript`로 재생성하는 것을 권장.
+
+export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
 export type SendLogStatus = "sent" | "muted" | "dnd" | "failed" | "no_subscription";
 
@@ -219,11 +221,76 @@ export interface Database {
           status?: SendLogStatus;
           created_at?: string;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "send_logs_sender_id_fkey";
+            columns: ["sender_id"];
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "send_logs_recipient_id_fkey";
+            columns: ["recipient_id"];
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      friend_requests: {
+        Row: {
+          id: string;
+          requester_id: string;
+          addressee_id: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          requester_id: string;
+          addressee_id: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          requester_id?: string;
+          addressee_id?: string;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "friend_requests_requester_id_fkey";
+            columns: ["requester_id"];
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "friend_requests_addressee_id_fkey";
+            columns: ["addressee_id"];
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
       };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      send_friend_request: {
+        Args: { p_member_code: string };
+        Returns: Json;
+      };
+      accept_friend_request: {
+        Args: { p_request_id: string };
+        Returns: string | null;
+      };
+      save_shortcut: {
+        Args: {
+          p_id: string | null;
+          p_name: string;
+          p_message_template: string;
+          p_recipient_ids: string[];
+        };
+        Returns: Json;
+      };
+    };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
   };

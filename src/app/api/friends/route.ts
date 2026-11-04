@@ -1,23 +1,22 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthedClient, unauthorized } from "@/lib/supabase/auth";
 
 // 내가 추가한 친구 목록 (뮤트 여부 포함)
 export async function GET() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "로그인이 필요해요." }, { status: 401 });
+  const { supabase, userId } = await getAuthedClient();
+  if (!userId) return unauthorized();
 
-  const { data: friends, error } = await supabase
-    .from("friends")
-    .select("id, friend_id, created_at, friend:profiles!friends_friend_id_fkey(id, nickname, member_code)")
-    .eq("owner_id", user.id)
-    .order("created_at", { ascending: false });
+  const [{ data: friends, error }, { data: mutes }] = await Promise.all([
+    supabase
+      .from("friends")
+      .select("id, friend_id, created_at, friend:profiles!friends_friend_id_fkey(id, nickname, member_code)")
+      .eq("owner_id", userId)
+      .order("created_at", { ascending: false }),
+    supabase.from("mutes").select("muted_id").eq("muter_id", userId),
+  ]);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const { data: mutes } = await supabase.from("mutes").select("muted_id").eq("muter_id", user.id);
   const mutedIds = new Set((mutes ?? []).map((m) => m.muted_id));
 
   const result = (friends ?? []).map((f) => ({
@@ -32,13 +31,10 @@ export async function GET() {
   return NextResponse.json({ friends: result });
 }
 
-// 회원코드로 친구 추가
+// 회원코드로 바로 추가 (단방향, 기존 방식 유지)
 export async function POST(request: Request) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "로그인이 필요해요." }, { status: 401 });
+  const { supabase, userId } = await getAuthedClient();
+  if (!userId) return unauthorized();
 
   const body = await request.json().catch(() => null);
   const memberCode = (body?.memberCode ?? "").trim();
@@ -55,13 +51,15 @@ export async function POST(request: Request) {
 
   if (findError) return NextResponse.json({ error: findError.message }, { status: 500 });
   if (!target) return NextResponse.json({ error: "해당 회원코드를 찾을 수 없어요." }, { status: 404 });
-  if (target.id === user.id) {
+  if (target.id === userId) {
     return NextResponse.json({ error: "본인은 추가할 수 없어요." }, { status: 400 });
   }
 
-  const { error: insertError } = await supabase
+  const { data: inserted, error: insertError } = await supabase
     .from("friends")
-    .insert({ owner_id: user.id, friend_id: target.id });
+    .insert({ owner_id: userId, friend_id: target.id })
+    .select("id, created_at")
+    .single();
 
   if (insertError) {
     if (insertError.code === "23505") {
@@ -71,6 +69,13 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json({
-    friend: { friendId: target.id, nickname: target.nickname, memberCode: target.member_code },
+    friend: {
+      id: inserted.id,
+      friendId: target.id,
+      nickname: target.nickname,
+      memberCode: target.member_code,
+      createdAt: inserted.created_at,
+      muted: false,
+    },
   });
 }

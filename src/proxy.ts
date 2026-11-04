@@ -25,9 +25,10 @@ export async function proxy(request: NextRequest) {
     }
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // getClaims()는 JWT를 로컬에서 검증하므로 탭 이동마다 Auth 서버 왕복이 생기지 않는다.
+  // (만료된 경우에만 refresh 요청이 발생하고, 갱신된 쿠키는 위 setAll로 응답에 실린다.)
+  const { data } = await supabase.auth.getClaims();
+  const user = data?.claims?.sub ?? null;
 
   const isPublicPath = PUBLIC_PATHS.some((path) => request.nextUrl.pathname.startsWith(path));
 

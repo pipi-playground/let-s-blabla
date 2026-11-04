@@ -11,7 +11,8 @@
 5. [사용법](#사용법)
 6. [주요 기능](#주요-기능)
 7. [프로젝트 구조](#프로젝트-구조)
-8. [알려진 제약 / 다음에 고려할 것](#알려진-제약--다음에-고려할-것)
+8. [성능 설계](#성능-설계)
+9. [알려진 제약 / 다음에 고려할 것](#알려진-제약--다음에-고려할-것)
 
 ## 프로젝트 소개
 
@@ -53,12 +54,13 @@
 flowchart TD
     A[회원가입<br/>이메일/비밀번호 + 닉네임 선택] --> B[로그인]
     B --> C[PWA 설치 + 알림 켜기]
-    C --> D[친구 추가<br/>회원코드 4자리 입력 → 미리보기 → 확정]
+    C --> D[친구 추가<br/>회원코드 4자리 입력 → 미리보기 →<br/>친구 요청 · 상대 수락 시 서로 친구<br/>또는 바로 추가]
     D --> E[단축버튼 생성<br/>이름 · 메시지 · 기본 전송 대상 최대 5명]
     E --> F[단축버튼 클릭]
     F --> G[전송 대상 팝업<br/>기본 대상 사전 선택, 조정 가능]
     G --> H[전송 → 결과 확인]
     H -.반복.-> F
+    H --> I[기록 탭에서<br/>보낸/받은 알림 확인]
 ```
 
 ### 전송 요청 처리 (`POST /api/push/send`)
@@ -77,10 +79,10 @@ flowchart TD
     F -- 아니오 --> G{푸시 구독 있음?}
     G -- 아니오 --> G1[status: no_subscription]
     G -- 예 --> H[메시지 템플릿 렌더링<br/>{{me}} / {{user}} 치환]
-    H --> I[web-push로 발송]
+    H --> I[web-push로 발송<br/>수신자 전원 병렬]
     I --> J[status: sent / failed]
-    E1 & F1 & G1 & J --> K[send_logs 기록 +<br/>단축버튼 last_sent_at 갱신]
-    K --> L[결과를 화면에 표시]
+    E1 & F1 & G1 & J --> K[결과를 화면에 표시]
+    K -.응답 후 after.-> L[send_logs 기록 +<br/>만료 구독 정리]
 ```
 
 ## 시작하기 (개발 환경 세팅)
@@ -90,6 +92,7 @@ flowchart TD
 1. [supabase.com](https://supabase.com)에서 새 프로젝트 생성
 2. `supabase/migrations/0001_init.sql` 내용을 SQL Editor에 그대로 붙여넣고 실행
    - profiles(닉네임/회원코드), friends, shortcuts, shortcut_recipients, push_subscriptions, mutes, dnd_settings, send_logs 테이블과 RLS 정책이 생성됩니다.
+   - 이어서 `supabase/migrations/0002_friend_requests_history_perf.sql`도 실행합니다. (친구 요청 테이블, 요청/수락·단축버튼 저장 RPC, 조회 인덱스)
 3. **Authentication → Providers → Email**에서 **"Confirm email"을 꺼주세요.** (이메일 인증 없이 가입 즉시 로그인되도록 하기 위함)
 4. **Project Settings → API**에서 `Project URL`, `anon public` 키, `service_role` 키를 복사
 
@@ -121,6 +124,7 @@ npm run dev
 ### 4. Vercel 배포
 
 1. GitHub에 push 후 Vercel에서 이 저장소 import
+   - 서버 함수 리전은 `vercel.json`에서 **`hnd1`(도쿄)**로 고정되어 있습니다. Supabase 프로젝트 리전(`ap-northeast-1`, 도쿄)과 맞춰 DB 왕복 지연을 최소화하기 위함이며, Supabase 리전을 바꾸면 이 값도 함께 바꿔주세요. (확인: Vercel → Settings → Functions → Function Region)
 2. Vercel 프로젝트 설정 → Environment Variables에 위 6개 값(`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`) 등록
 3. Deploy
 
@@ -142,7 +146,10 @@ npm run dev
 ### 3. 친구 추가
 
 1. 상대방에게 본인의 4자리 회원코드를 알려달라고 요청
-2. "친구" 탭에서 회원코드 입력 → 닉네임 미리보기 확인 → 추가 확정
+2. "친구" 탭에서 회원코드 입력 → 닉네임 미리보기 확인 후 둘 중 선택
+   - **친구 요청**: 상대에게 "OO님이 푸시알림을 보내겠다는데 받으셔야겠죠?" 푸시가 가고, 상대가 수락하면 **서로 친구**가 됩니다. 서로 동시에 요청하면 자동으로 수락됩니다.
+   - **바로 추가**: 상대 동의 없이 내 친구 목록에만 추가합니다. (단방향, 기존 방식)
+3. 받은 요청은 친구 탭 상단에서 수락/거절, 보낸 요청은 하단에서 취소할 수 있습니다. 받은 요청이 있으면 상단 "친구" 탭에 숫자 배지가 표시됩니다.
 
 ### 4. 단축버튼 만들기
 
@@ -157,7 +164,13 @@ npm run dev
 3. 전송 확정 → 각 수신자별 발송 결과(성공 / 뮤트됨 / 방해금지 시간 / 실패 / 미구독)를 화면에서 확인
 4. 같은 버튼은 **30초 쿨다운** 후 다시 보낼 수 있습니다.
 
-### 6. 설정
+### 6. 기록 보기
+
+- "기록" 탭에서 **보낸 알림**(받는 사람 · 시간 · 내용 · 전송 결과)과 **받은 알림**(보낸 사람 · 시간 · 내용)을 나눠서 볼 수 있습니다.
+- 최신순 / 오래된순 정렬, 30개씩 "더 보기"
+- 받은 알림 중 뮤트·방해금지 등으로 실제로 울리지 않은 건 별도 표시됩니다.
+
+### 7. 설정
 
 - **닉네임 변경**: 설정 탭에서 언제든 변경 가능
 - **상대별 뮤트**: 특정 친구에게 알림을 받고 싶지 않을 때, 친구 목록에서 뮤트 설정 (내가 상대를 뮤트하면 상대가 나에게 보내는 알림이 차단됨)
@@ -169,6 +182,9 @@ npm run dev
 - 단축버튼 추가/수정/삭제 (이름·메시지 필수, 기본 전송 대상 최대 5명 선택)
 - 메시지에 `{{me}}`(보내는 사람 닉네임), `{{user}}`(받는 사람 닉네임) 치환 지원 + 작성 중 실시간 미리보기
 - 회원코드로 친구 추가, 추가 전 상대 프로필 미리보기
+  - **친구 요청**: 상대가 수락하면 서로 친구가 됨. 요청을 받으면 "OO님이 푸시알림을 보내겠다는데 받으셔야겠죠?" 푸시 알림 발송 (서로 동시에 요청하면 자동 수락)
+  - **바로 추가**: 기존 방식, 내 목록에만 단방향 추가
+- **기록 탭**: 보낸 알림(받는 사람·시간·내용·전송 결과) / 받은 알림(보낸 사람·시간·내용), 최신순·오래된순 정렬
 - 단축버튼 클릭 → 친구 팝업(기본 대상 사전 선택, 최대 5명, 해제 가능) → 전송
 - 버튼당 30초 발송 쿨다운
 - 상대별 알림 끄기(뮤트), 방해금지 시간대 설정
@@ -177,18 +193,28 @@ npm run dev
 
 ```
 supabase/migrations/0001_init.sql   DB 스키마 + RLS
-src/middleware.ts → src/proxy.ts    인증 라우트 보호 (Next.js 16 proxy 컨벤션)
+src/proxy.ts                        인증 라우트 보호 (Next.js 16 proxy 컨벤션)
 src/lib/supabase/{client,server,admin}.ts   Supabase 클라이언트 (브라우저/서버/서비스롤)
 src/lib/push/webpush.ts             웹푸시 발송
 src/lib/utils/{message,dnd,push-client}.ts  메시지 템플릿, 방해금지 판정, 구독 유틸
 src/app/login                       회원가입/로그인
-src/app/(main)                      홈 / 친구 / 설정 (공통 상단 네비게이션)
+src/app/(main)                      홈 / 친구 / 기록 / 설정 (공통 상단 네비게이션)
+src/lib/client/cache.ts             탭 이동 간 유지되는 클라이언트 캐시 (stale-while-revalidate + localStorage)
 src/app/api/**                      REST API Route Handlers
 public/manifest.json, public/sw.js  PWA 매니페스트 & 서비스워커
 ```
 
+## 성능 설계
+
+- **인증 확인을 로컬 JWT 검증으로**: proxy와 API 라우트에서 `getUser()`(매번 Auth 서버 왕복) 대신 `getClaims()`를 사용. Supabase JWT 서명 키가 ECC(P-256)라 공개키(JWKS, 캐시됨)로 서버 안에서 바로 검증합니다.
+- **함수 리전 = DB 리전**: `vercel.json`의 `regions: ["hnd1"]`로 Vercel 함수를 Supabase(도쿄)와 같은 리전에서 실행
+- **DB 왕복 최소화**: 단축버튼 저장(검증 + 저장 + 기본 대상 교체)과 친구 요청/수락을 Postgres 함수(RPC) 한 번으로 처리. 발송 시 필요한 조회 7개는 한 번에 병렬 실행
+- **응답 후 처리**: 발송 기록 저장, 만료 구독 정리, 친구 요청 푸시는 Next.js `after()`로 응답을 보낸 뒤 실행
+- **클라이언트 캐시** (`src/lib/client/cache.ts`): 단축버튼·친구·프로필 등을 stale-while-revalidate 방식으로 캐시하고 localStorage에도 저장해, 탭 이동이나 앱 재실행 시 로딩 없이 바로 표시. 저장/삭제 후에는 서버 응답으로 캐시를 직접 갱신해 재조회하지 않음. 로그인/로그아웃 시 캐시 초기화
+
 ## 알려진 제약 / 다음에 고려할 것
 
 - 회원코드가 4자리 숫자라 전수조사로 다른 사람 코드를 알아낼 수 있습니다. 지인 소규모 사용을 전제로 한 트레이드오프입니다.
-- 발송 결과(성공/뮤트/방해금지/실패/미구독)는 보내는 화면에서만 확인 가능하고, 별도의 인앱 알림함은 없습니다.
+- 친구 삭제는 내 목록에서만 지워집니다. (상대 목록에는 내가 남아 있음)
+- 발송 기록은 응답 후에 저장되므로, 보내자마자 기록 탭을 열면 1초 미만 늦게 보일 수 있습니다.
 - 아이콘은 자리표시용 단색 PNG입니다. `public/icons/`, `public/favicon-32.png`를 원하는 디자인으로 교체하세요.

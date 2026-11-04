@@ -1,24 +1,21 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthedClient, unauthorized } from "@/lib/supabase/auth";
 
 export async function GET() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "로그인이 필요해요." }, { status: 401 });
+  const { supabase, userId } = await getAuthedClient();
+  if (!userId) return unauthorized();
 
   const { data, error } = await supabase
     .from("dnd_settings")
     .select("*")
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .maybeSingle();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   return NextResponse.json({
     settings: data ?? {
-      user_id: user.id,
+      user_id: userId,
       enabled: false,
       start_time: "23:00",
       end_time: "08:00",
@@ -28,11 +25,8 @@ export async function GET() {
 }
 
 export async function PUT(request: Request) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "로그인이 필요해요." }, { status: 401 });
+  const { supabase, userId } = await getAuthedClient();
+  if (!userId) return unauthorized();
 
   const body = await request.json().catch(() => null);
   const enabled = Boolean(body?.enabled);
@@ -45,7 +39,7 @@ export async function PUT(request: Request) {
 
   const { error } = await supabase.from("dnd_settings").upsert(
     {
-      user_id: user.id,
+      user_id: userId,
       enabled,
       start_time: startTime,
       end_time: endTime,
